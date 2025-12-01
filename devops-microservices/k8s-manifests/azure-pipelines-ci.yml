@@ -1,16 +1,113 @@
-# ... (Previous CI Pipeline stages are here) ...
+# -------------------------------------------------------------------------
+# FULL CI/CD PIPELINE: Build, Test, Push to ACR, and Deploy to AKS
+# -------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------
-# CD STAGE: Deploy to AKS
-# -------------------------------------------------------------------------
+trigger:
+  branches:
+    include:
+      - iq-line # Trigger on code commits to the main branch
+
+# Use the Variable Group created in the Azure DevOps Library
+variables:
+  - group: Azure-Variables
+  - name: projectRoot
+    value: '$(System.DefaultWorkingDirectory)'
+  - name: buildId
+    value: '$(Build.BuildId)'
+
+pool:
+  vmImage: 'ubuntu-latest' # Microsoft-hosted agent
+
+# =========================================================================
+# STAGE 1: CI (Build, Test, Containerize, Push)
+# =========================================================================
+- stage: BuildTestAndPush
+  displayName: 'CI: Build, Test, & Push Containers'
+  jobs:
+  - job: BuildServices
+    displayName: 'Process Microservices'
+    
+    # Use a matrix strategy to run steps concurrently for each service
+    strategy:
+      matrix:
+        Gateway:
+          serviceName: api-gateway
+        User:
+          serviceName: user-service
+        Order:
+          serviceName: order-service
+
+    steps:
+    - checkout: self
+      
+    - task: UsePythonVersion@0
+      displayName: 'Set up Python 3.11'
+      inputs:
+        versionSpec: '3.11'
+
+    # 1. Install Dependencies & Run Tests (Only for user-service)
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
+        
+        if [ "$(serviceName)" = "user-service" ]; then
+          echo "Running unit tests for User Service..."
+          # Note: Adjust test command if your test file location is different
+          python -m unittest $(serviceName)/test_app.py
+        fi
+      displayName: 'Install Deps & Run Tests'
+
+    # 2. Publish Test Results (Required CI Artifact)
+    - task: PublishTestResults@2
+      condition: and(succeeded(), eq(variables['serviceName'], 'user-service'))
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/test-results-*.xml' # Assume test results are outputted somewhere
+        failTaskOnFailedTests: true
+        displayName: 'Publish Test Results'
+        
+    # 3. Containerization Stage: Build and Tag Image
+    - task: Docker@2
+      displayName: 'Build Docker Image: $(serviceName)'
+      inputs:
+        command: build
+        containerRegistry: 'azure-service-connection' # Use the Service Connection name
+        repository: '$(acrName)/$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
+        tags: |
+          $(buildId)
+          latest
+
+    # 4. Push Stage: Push to Azure Container Registry (ACR)
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        containerRegistry: 'azure-service-connection'
+        repository: '$(acrName)/$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+          
+    # 5. Publish Artifacts: Pass K8s manifests to CD
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Artifact: Deployment Manifests'
+      inputs:
+        targetPath: '$(projectRoot)/k8s-manifests'
+        artifact: 'k8s-deployment-manifests'
+        publishLocation: 'pipeline'
+
+# =========================================================================
+# STAGE 2: CD (Deploy to AKS)
+# =========================================================================
 - stage: DeployToAKS
-  displayName: 'Deploy Microservices to AKS'
-  dependsOn: BuildTestAndPush # Ensure this stage runs only after CI succeeds
+  displayName: 'CD: Deploy Microservices to AKS'
+  dependsOn: BuildTestAndPush # Only run if CI succeeds
   condition: succeeded()
   jobs:
   - deployment: DeployMicroservices
     displayName: 'Deployment Job'
-    environment: 'AKS-PROD' # Use Azure DevOps Environments for Gates/Approvals
+    environment: 'aks-prod-env' # Use an environment for better visibility and approval gates
     pool:
       vmImage: 'ubuntu-latest'
     strategy:
@@ -25,29 +122,30 @@
               artifact: 'k8s-deployment-manifests'
               path: '$(Pipeline.Workspace)/k8s-manifests'
               
-          # Install the Key Vault Secret Store CSI Driver (If not already done)
-          # NOTE: In a real scenario, this is often done during IaC or setup.
-          # - task: AzureCLI@2
-          #   displayName: 'Install Key Vault CSI Driver'
-          #   inputs:
-          #     azureSubscription: 'azure-service-connection'
-          #     scriptType: 'bash'
-          #     scriptLocation: 'inlineScript'
-          #     inlineScript: |
-          #       az aks enable-addons --addons azure-keyvault-secrets-provider -g $(resourceGroupName) -n $(aksClusterName)
+          # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
+          # This step replaces the placeholder variables in your K8s YAML files 
+          # with actual values from the Azure-Variables group.
+          - task: replacetokens@5
+            displayName: 'Replace Tokens in K8s Manifests'
+            inputs:
+              rootDirectory: '$(Pipeline.Workspace)/k8s-manifests'
+              targetFiles: '**/*.yaml'
+              tokenPrefix: '$('
+              tokenSuffix: ')'
+              actionOnMissing: 'warn' # Warn if a token in the manifest is missing a variable value
               
-          # 1. Deploy the SecretProviderClass for Key Vault Integration
+          # 2. Deploy Key Vault SecretProviderClass (First)
           - task: Kubernetes@1
             displayName: 'Deploy Key Vault SecretProviderClass'
             inputs:
               connectionType: 'Azure Resource Manager'
-              azureSubscriptionEndpoint: 'azure-service-connection' # Your Service Connection name
-              azureResourceGroup: '$(resourceGroupName)' # Variable from your Variable Group
-              kubernetesCluster: '$(aksClusterName)' # Variable from your Variable Group
+              azureSubscriptionEndpoint: 'azure-service-connection'
+              azureResourceGroup: '$(resourceGroupName)'
+              kubernetesCluster: '$(aksClusterName)'
               command: 'apply'
               arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
 
-          # 2. Deploy all services (User, Order, Gateway) and HPA
+          # 3. Deploy all services, HPA, and LoadBalancer
           - task: Kubernetes@1
             displayName: 'Deploy Microservices & HPA to AKS'
             inputs:
@@ -58,6 +156,7 @@
               command: 'apply'
               arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
               
+          # 4. Verification Step (Optional but recommended)
           - task: AzureCLI@2
             displayName: 'Verify Deployment (Get Gateway IP)'
             inputs:
@@ -65,13 +164,15 @@
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
               inlineScript: |
-                # Ensure kubectl is configured
+                # Get Kube config
                 az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
                 
-                # Check for the external IP of the API Gateway
                 echo "Waiting for API Gateway External IP..."
-                kubectl get svc api-gateway-external --watch
+                kubectl get svc api-gateway-external --watch &
                 
-                # Check HPA status (Optional but good for validation)
-                echo "Checking HPA status..."
-                kubectl get hpa
+                # Wait for 60 seconds (or appropriate time) for the IP to provision
+                sleep 60 
+                
+                GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+                echo "##vso[task.setvariable name=GatewayExternalIP;isOutput=true]$GATEWAY_IP"
+                echo "API Gateway External IP: $GATEWAY_IP"
