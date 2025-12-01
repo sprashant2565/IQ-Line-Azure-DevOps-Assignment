@@ -15,11 +15,17 @@ spec:
       labels:
         app: api-gateway
     spec:
+ # Inside the container spec for api-gateway
       containers:
       - name: api-gateway
-        image: devopsassignacr.azurecr.io/api-gateway:latest # REPLACE with your ACR login server
+        image: devopsassignacr.azurecr.io/api-gateway:latest
         ports:
         - containerPort: 5000
+        env:
+          - name: APPINSIGHTS_INSTRUMENTATIONKEY
+            # The CD pipeline will replace $(app_insights_ikey) with the actual key from the Variable Group
+            value: "$(app_insights_ikey)" 
+        # ... rest of the container spec
         resources:
           limits:
             cpu: 200m
