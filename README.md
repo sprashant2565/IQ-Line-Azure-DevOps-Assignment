@@ -1,1 +1,1 @@
-# IQ--Line-Azure-DevOps-Assignment
+# IQ-Line-Azure-DevOps-Assignment
