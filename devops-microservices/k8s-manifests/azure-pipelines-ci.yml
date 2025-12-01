@@ -1,0 +1,77 @@
+# ... (Previous CI Pipeline stages are here) ...
+
+# -------------------------------------------------------------------------
+# CD STAGE: Deploy to AKS
+# -------------------------------------------------------------------------
+- stage: DeployToAKS
+  displayName: 'Deploy Microservices to AKS'
+  dependsOn: BuildTestAndPush # Ensure this stage runs only after CI succeeds
+  condition: succeeded()
+  jobs:
+  - deployment: DeployMicroservices
+    displayName: 'Deployment Job'
+    environment: 'AKS-PROD' # Use Azure DevOps Environments for Gates/Approvals
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          
+          # Download the K8s manifests published by the CI stage
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download K8s Manifests'
+            inputs:
+              artifact: 'k8s-deployment-manifests'
+              path: '$(Pipeline.Workspace)/k8s-manifests'
+              
+          # Install the Key Vault Secret Store CSI Driver (If not already done)
+          # NOTE: In a real scenario, this is often done during IaC or setup.
+          # - task: AzureCLI@2
+          #   displayName: 'Install Key Vault CSI Driver'
+          #   inputs:
+          #     azureSubscription: 'azure-service-connection'
+          #     scriptType: 'bash'
+          #     scriptLocation: 'inlineScript'
+          #     inlineScript: |
+          #       az aks enable-addons --addons azure-keyvault-secrets-provider -g $(resourceGroupName) -n $(aksClusterName)
+              
+          # 1. Deploy the SecretProviderClass for Key Vault Integration
+          - task: Kubernetes@1
+            displayName: 'Deploy Key Vault SecretProviderClass'
+            inputs:
+              connectionType: 'Azure Resource Manager'
+              azureSubscriptionEndpoint: 'azure-service-connection' # Your Service Connection name
+              azureResourceGroup: '$(resourceGroupName)' # Variable from your Variable Group
+              kubernetesCluster: '$(aksClusterName)' # Variable from your Variable Group
+              command: 'apply'
+              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
+
+          # 2. Deploy all services (User, Order, Gateway) and HPA
+          - task: Kubernetes@1
+            displayName: 'Deploy Microservices & HPA to AKS'
+            inputs:
+              connectionType: 'Azure Resource Manager'
+              azureSubscriptionEndpoint: 'azure-service-connection'
+              azureResourceGroup: '$(resourceGroupName)'
+              kubernetesCluster: '$(aksClusterName)'
+              command: 'apply'
+              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
+              
+          - task: AzureCLI@2
+            displayName: 'Verify Deployment (Get Gateway IP)'
+            inputs:
+              azureSubscription: 'azure-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Ensure kubectl is configured
+                az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
+                
+                # Check for the external IP of the API Gateway
+                echo "Waiting for API Gateway External IP..."
+                kubectl get svc api-gateway-external --watch
+                
+                # Check HPA status (Optional but good for validation)
+                echo "Checking HPA status..."
+                kubectl get hpa

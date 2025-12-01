@@ -1,0 +1,12 @@
+# 2. Kubernetes Service (LoadBalancer for Public Access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-external
+spec:
+  type: LoadBalancer # Creates an Azure Load Balancer with a public IP
+  ports:
+  - port: 80
+    targetPort: 5000
+  selector:
+    app: api-gateway

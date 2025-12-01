@@ -1,0 +1,47 @@
+# 1. Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  labels:
+    app: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: devopsassignacr.azurecr.io/user-service:latest # REPLACE with your ACR login server
+        ports:
+        - containerPort: 5001
+        resources:
+          limits:
+            cpu: 300m   # Right-sizing: max CPU for the pod
+            memory: 256Mi
+          requests:
+            cpu: 100m   # Required for HPA to work
+            memory: 128Mi
+        # Example of referencing the Kubernetes Secret created by CSI Driver
+        env:
+          - name: APP_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets # Name of the K8s Secret created by SecretProviderClass
+                key: secretkey
+        volumeMounts:
+          - name: secret-data
+            mountPath: "/mnt/secrets"
+            readOnly: true
+      volumes:
+        - name: secret-data
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "azure-keyvault-provider"
