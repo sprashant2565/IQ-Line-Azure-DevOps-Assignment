@@ -102,9 +102,9 @@ stages:
         artifact: 'k8s-deployment-manifests'
         publishLocation: 'pipeline'
 
-# =========================================================================
+# ========================================================================
 # STAGE 2: CD (Deploy to AKS)
-# =========================================================================
+# ========================================================================
 - stage: DeployToAKS
   displayName: 'CD: Deploy Microservices to AKS'
   dependsOn: BuildTestAndPush
