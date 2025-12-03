@@ -39,8 +39,6 @@ stages:
 # =========================================================================
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
-  strategy:
-    maxParallel: 1  # Run jobs sequentially to avoid parallelism requirement
   jobs:
   
   # Job 1: Build and push API Gateway
