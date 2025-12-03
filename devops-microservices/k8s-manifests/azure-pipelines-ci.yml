@@ -39,6 +39,8 @@ stages:
 # =========================================================================
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
+  strategy:
+    maxParallel: 1  # Run jobs sequentially to avoid parallelism requirement
   jobs:
   
   # Job 1: Build and push API Gateway
@@ -231,9 +233,9 @@ stages:
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
-    # Using the self-hosted agent pool name
+    # Use Microsoft-hosted agent
     pool:
-      name: MySelfHostedPool
+      vmImage: 'ubuntu-latest'
     steps:
     
     # Download the K8s manifests published by the CI stage
