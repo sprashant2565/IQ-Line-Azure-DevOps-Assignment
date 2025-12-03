@@ -70,7 +70,7 @@ stages:
         command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
+        repository: '$(acrName)/$(serviceName)'
         Dockerfile: 'devops-microservices/$(serviceName)/Dockerfile'
         buildContext: 'devops-microservices/$(serviceName)'
         tags: |
@@ -83,7 +83,7 @@ stages:
         command: push
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
+        repository: '$(acrName)/$(serviceName)'
         tags: |
           $(buildId)
           latest
@@ -114,7 +114,7 @@ stages:
         command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
+        repository: '$(acrName)/$(serviceName)'
         Dockerfile: 'devops-microservices/$(serviceName)/Dockerfile'
         buildContext: 'devops-microservices/$(serviceName)'
         tags: |
@@ -127,7 +127,7 @@ stages:
         command: push
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
+        repository: '$(acrName)/$(serviceName)'
         tags: |
           $(buildId)
           latest
@@ -156,8 +156,9 @@ stages:
         command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        repository: '$(acrName)/$(serviceName)'
+        Dockerfile: 'devops-microservices/$(serviceName)/Dockerfile'
+        buildContext: 'devops-microservices/$(serviceName)'
         tags: |
           $(buildId)
           latest
@@ -168,7 +169,7 @@ stages:
         command: push
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
+        repository: '$(acrName)/$(serviceName)'
         tags: |
           $(buildId)
           latest
