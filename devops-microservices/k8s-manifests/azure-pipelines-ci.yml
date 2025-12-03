@@ -123,94 +123,87 @@ stages:
   dependsOn: BuildTestAndPush # Only run if CI succeeds
   condition: succeeded()
   jobs:
-  - deployment: DeployMicroservices
+  - job: DeployMicroservices
     displayName: 'Deployment Job'
-    environment:
-      name: 'aks-deployment'
-      resourceType: 'Kubernetes'
     pool:
       vmImage: 'ubuntu-latest'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
+    steps:
+    
+    # Download the K8s manifests published by the CI stage
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download K8s Manifests'
+      inputs:
+        artifact: 'k8s-deployment-manifests'
+        path: '$(Pipeline.Workspace)/k8s-manifests'
+              
+    # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
+    - task: Bash@3
+      displayName: 'Replace Tokens in K8s Manifests (envsubst)'
+      inputs:
+        targetType: 'inline'
+        script: |
+          # Install envsubst (gettext-base) on Linux agents
+          if ! command -v envsubst >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gettext-base
+          fi
+
+          # Export pipeline variables into shell variables (Azure Pipelines will substitute $(var) before running)
+          export acrName="$(acrName)"
+          export resourceGroupName="$(resourceGroupName)"
+          export aksClusterName="$(aksClusterName)"
+          export app_insights_ikey="$(app_insights_ikey)"
+
+          WORKSPACE_DIR="$(Pipeline.Workspace)/k8s-manifests"
+          find "$WORKSPACE_DIR" -type f -name '*.yaml' -print0 | while IFS= read -r -d '' file; do
+            tmp="${file}.tmp"
+            # Convert $(VAR) -> ${VAR} so envsubst can use environment variables
+            sed -E 's/\$\(([A-Za-z_][A-Za-z0-9_]*)\)/\${\1}/g' "$file" > "$tmp"
+            envsubst < "$tmp" > "$file"
+            rm "$tmp"
+          done
+
+          echo "Token replacement complete."
+
+    # 2. Deploy Key Vault SecretProviderClass (First)
+    - task: Kubernetes@1
+      displayName: 'Deploy Key Vault SecretProviderClass'
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: 'azure-service-connection'
+        azureResourceGroup: '$(resourceGroupName)'
+        kubernetesCluster: '$(aksClusterName)'
+        command: 'apply'
+        arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
+
+    # 3. Deploy all services, HPA, and LoadBalancer
+    - task: Kubernetes@1
+      displayName: 'Deploy Microservices & HPA to AKS'
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: 'azure-service-connection'
+        azureResourceGroup: '$(resourceGroupName)'
+        kubernetesCluster: '$(aksClusterName)'
+        command: 'apply'
+        arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
+              
+    # 4. Verification Step (Optional but recommended)
+    - task: AzureCLI@2
+      displayName: 'Verify Deployment (Get Gateway IP)'
+      inputs:
+        azureSubscription: 'azure-service-connection'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Get Kube config
+          az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
           
-          # Download the K8s manifests published by the CI stage
-          - task: DownloadPipelineArtifact@2
-            displayName: 'Download K8s Manifests'
-            inputs:
-              artifact: 'k8s-deployment-manifests'
-              path: '$(Pipeline.Workspace)/k8s-manifests'
-              
-          # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
-          # NOTE: This task requires the 'Replace Tokens' Marketplace extension to be installed!
-          - task: Bash@3
-            displayName: 'Replace Tokens in K8s Manifests (envsubst)'
-            inputs:
-              targetType: 'inline'
-              script: |
-                # Install envsubst (gettext-base) on Linux agents
-                if ! command -v envsubst >/dev/null 2>&1; then
-                  sudo apt-get update
-                  sudo apt-get install -y gettext-base
-                fi
-
-                # Export pipeline variables into shell variables (Azure Pipelines will substitute $(var) before running)
-                export acrName="$(acrName)"
-                export resourceGroupName="$(resourceGroupName)"
-                export aksClusterName="$(aksClusterName)"
-                export app_insights_ikey="$(app_insights_ikey)"
-
-                WORKSPACE_DIR="$(Pipeline.Workspace)/k8s-manifests"
-                find "$WORKSPACE_DIR" -type f -name '*.yaml' -print0 | while IFS= read -r -d '' file; do
-                  tmp="${file}.tmp"
-                  # Convert $(VAR) -> ${VAR} so envsubst can use environment variables
-                  sed -E 's/\$\(([A-Za-z_][A-Za-z0-9_]*)\)/\${\1}/g' "$file" > "$tmp"
-                  envsubst < "$tmp" > "$file"
-                  rm "$tmp"
-                done
-
-                echo "Token replacement complete."
-
-          # 2. Deploy Key Vault SecretProviderClass (First)
-          - task: Kubernetes@1
-            displayName: 'Deploy Key Vault SecretProviderClass'
-            inputs:
-              connectionType: 'Azure Resource Manager'
-              azureSubscriptionEndpoint: 'azure-service-connection'
-              azureResourceGroup: '$(resourceGroupName)'
-              kubernetesCluster: '$(aksClusterName)'
-              command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
-
-          # 3. Deploy all services, HPA, and LoadBalancer
-          - task: Kubernetes@1
-            displayName: 'Deploy Microservices & HPA to AKS'
-            inputs:
-              connectionType: 'Azure Resource Manager'
-              azureSubscriptionEndpoint: 'azure-service-connection'
-              azureResourceGroup: '$(resourceGroupName)'
-              kubernetesCluster: '$(aksClusterName)'
-              command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
-              
-          # 4. Verification Step (Optional but recommended)
-          - task: AzureCLI@2
-            displayName: 'Verify Deployment (Get Gateway IP)'
-            inputs:
-              azureSubscription: 'azure-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                # Get Kube config
-                az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
-                
-                echo "Waiting for API Gateway External IP..."
-                kubectl get svc api-gateway-external --watch &
-                
-                # Wait for 60 seconds (or appropriate time) for the IP to provision
-                sleep 60 
-                
-                GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-                echo "##vso[task.setvariable name=GatewayExternalIP;isOutput=true]$GATEWAY_IP"
-                echo "API Gateway External IP: $GATEWAY_IP"
+          echo "Waiting for API Gateway External IP..."
+          kubectl get svc api-gateway-external --watch &
+          
+          # Wait for 60 seconds (or appropriate time) for the IP to provision
+          sleep 60 
+          
+          GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "##vso[task.setvariable name=GatewayExternalIP;isOutput=true]$GATEWAY_IP"
+          echo "API Gateway External IP: $GATEWAY_IP"
