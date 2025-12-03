@@ -28,10 +28,9 @@ variables:
   - name: app_insights_ikey
     value: ''  # Must be set in Variable Group (mark as secret)
 
-# FIX: Set pool to use your self-hosted agent
+# Use self-hosted agent pool to avoid hosted parallelism limits
 pool:
-  # name: MySelfHostedPool
-  vmImage: 'ubuntu-latest'  # Temporary: Use Microsoft-hosted agent while debugging
+  name: 'MySelfHostedPool'
 
 stages: 
 # =========================================================================
@@ -231,9 +230,9 @@ stages:
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
-    # Use Microsoft-hosted agent
+    # Use self-hosted agent pool to avoid hosted parallelism limits
     pool:
-      vmImage: 'ubuntu-latest'
+      name: 'MySelfHostedPool'
     steps:
     
     # Download the K8s manifests published by the CI stage
