@@ -271,6 +271,31 @@ stages:
 
           echo "Token replacement complete."
 
+    # 1.5 Install Secrets Store CSI Driver (required for SecretProviderClass)
+    - task: Bash@3
+      displayName: 'Install Secrets Store CSI Driver & Azure Plugin'
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Checking if Secrets Store CSI Driver is installed..."
+          if ! kubectl get crd secretproviderclasses.secrets-store.csi.x-k8s.io &> /dev/null; then
+            echo "Installing Secrets Store CSI Driver..."
+            helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+            helm repo update
+            helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver --namespace kube-system --set syncSecret.enabled=true
+            
+            echo "Installing Azure Key Vault Provider for Secrets Store CSI Driver..."
+            helm repo add azure https://raw.githubusercontent.com/Azure/secrets-store-csi-driver-provider-azure/master/charts
+            helm repo update
+            helm install azure-provider azure/azure-keyvault-secrets-provider --namespace kube-system
+            
+            echo "Waiting for CSI driver to be ready..."
+            kubectl rollout status daemonset/secrets-store-csi-driver -n kube-system --timeout=5m
+            echo "Secrets Store CSI Driver installed successfully."
+          else
+            echo "Secrets Store CSI Driver already installed."
+          fi
+
     # 2. Deploy Key Vault SecretProviderClass (First)
     - task: Kubernetes@1
       displayName: 'Deploy Key Vault SecretProviderClass'
