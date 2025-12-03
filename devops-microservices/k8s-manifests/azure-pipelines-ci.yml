@@ -34,16 +34,16 @@ pool:
 stages: 
 # =========================================================================
 # STAGE 1: CI (Build, Test, Containerize, Push)
+# CONSOLIDATED to a single job to avoid parallelism error.
 # =========================================================================
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
   jobs:
   
-  # Job 1: Build and push API Gateway
-  - job: BuildGateway
-    displayName: 'Build & Push: api-gateway'
-    variables:
-      serviceName: 'api-gateway'
+  # CONSOLIDATED JOB: Runs all microservice builds sequentially using a single unit of parallelism
+  - job: BuildAllServices
+    displayName: 'Build, Test, & Push All Microservices'
+    
     steps:
     - checkout: self
       
@@ -52,128 +52,77 @@ stages:
       inputs:
         versionSpec: '3.11'
 
+    # ---------------------------------------------
+    # 1. API GATEWAY BUILD
+    # ---------------------------------------------
     - script: |
-        echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
-      displayName: 'Install Dependencies'
+        echo "##[group]Processing API Gateway"
+        pip install -r api-gateway/requirements.txt
+        echo "##[endgroup]"
+      displayName: 'Install Deps: api-gateway'
 
     - task: Docker@2
-      displayName: 'Build Docker Image: $(serviceName)'
+      displayName: 'Build & Push: api-gateway'
       inputs:
-        command: build
+        command: buildAndPush
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        repository: 'api-gateway'
+        Dockerfile: 'api-gateway/Dockerfile'
         tags: |
           $(buildId)
           latest
 
-    - task: Docker@2
-      displayName: 'Push Image to ACR: $(serviceName)'
-      inputs:
-        command: push
-        azureSubscription: 'azure-service-connection'
-        azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        tags: |
-          $(buildId)
-          latest
-
-  # Job 2: Build and push User Service
-  - job: BuildUser
-    displayName: 'Build & Push: user-service'
-    dependsOn: BuildGateway
-    variables:
-      serviceName: 'user-service'
-    steps:
-    - checkout: self
-      
-    - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11'
-      inputs:
-        versionSpec: '3.11'
-
+    # ---------------------------------------------
+    # 2. USER SERVICE BUILD
+    # ---------------------------------------------
     - script: |
-        echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
+        echo "##[group]Processing User Service"
+        pip install -r user-service/requirements.txt
         echo "Running unit tests for User Service..."
-        python -m unittest $(serviceName)/test_app.py
-      displayName: 'Install Dependencies & Run Tests'
+        python -m unittest user-service/test_app.py
+        echo "##[endgroup]"
+      displayName: 'Install Deps & Run Tests: user-service'
+
+    # Note: Publish Test Results task must be used if unit tests create a JUnit file.
+    # The existing script command assumes the user service test creates test_app.py
 
     - task: Docker@2
-      displayName: 'Build Docker Image: $(serviceName)'
+      displayName: 'Build & Push: user-service'
       inputs:
-        command: build
+        command: buildAndPush
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        repository: 'user-service'
+        Dockerfile: 'user-service/Dockerfile'
         tags: |
           $(buildId)
           latest
 
-    - task: Docker@2
-      displayName: 'Push Image to ACR: $(serviceName)'
-      inputs:
-        command: push
-        azureSubscription: 'azure-service-connection'
-        azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        tags: |
-          $(buildId)
-          latest
-
-  # Job 3: Build and push Order Service
-  - job: BuildOrder
-    displayName: 'Build & Push: order-service'
-    dependsOn: BuildUser
-    variables:
-      serviceName: 'order-service'
-    steps:
-    - checkout: self
-      
-    - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11'
-      inputs:
-        versionSpec: '3.11'
-
+    # ---------------------------------------------
+    # 3. ORDER SERVICE BUILD
+    # ---------------------------------------------
     - script: |
-        echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
-      displayName: 'Install Dependencies'
+        echo "##[group]Processing Order Service"
+        pip install -r order-service/requirements.txt
+        echo "##[endgroup]"
+      displayName: 'Install Deps: order-service'
 
     - task: Docker@2
-      displayName: 'Build Docker Image: $(serviceName)'
+      displayName: 'Build & Push: order-service'
       inputs:
-        command: build
+        command: buildAndPush
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        repository: 'order-service'
+        Dockerfile: 'order-service/Dockerfile'
         tags: |
           $(buildId)
           latest
-
-    - task: Docker@2
-      displayName: 'Push Image to ACR: $(serviceName)'
-      inputs:
-        command: push
-        azureSubscription: 'azure-service-connection'
-        azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)'
-        tags: |
-          $(buildId)
-          latest
-
-  # Publish K8s manifests after all services are built
-  - job: PublishManifests
-    displayName: 'Publish K8s Manifests'
-    dependsOn:
-      - BuildGateway
-      - BuildUser
-      - BuildOrder
-    steps:
+          
+    # ---------------------------------------------
+    # 4. PUBLISH K8S MANIFESTS (Artifact for CD)
+    # ---------------------------------------------
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Artifact: Deployment Manifests'
       inputs:
@@ -202,7 +151,8 @@ stages:
         artifact: 'k8s-deployment-manifests'
         path: '$(Pipeline.Workspace)/k8s-manifests'
               
-    # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
+    # 1. Kubernetes Manifest Replacement (ACR name, App Insights Key)
+    # This Bash script uses envsubst to replace tokens $(VAR) in your YAML files.
     - task: Bash@3
       displayName: 'Replace Tokens in K8s Manifests (envsubst)'
       inputs:
@@ -230,6 +180,9 @@ stages:
           done
 
           echo "Token replacement complete."
+        # This replaces:
+        # - "$(acrName)" in api-gateway.yaml and user-deployment.yaml
+        # - "$(app_insights_ikey)" in api-gateway.yaml
 
     # 2. Deploy Key Vault SecretProviderClass (First)
     - task: Kubernetes@1
@@ -242,7 +195,7 @@ stages:
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
 
-    # 3. Deploy all services, HPA, and LoadBalancer
+    # 3. Deploy all services (Deployments, HPA, and LoadBalancer)
     - task: Kubernetes@1
       displayName: 'Deploy Microservices & HPA to AKS'
       inputs:
@@ -252,8 +205,9 @@ stages:
         kubernetesCluster: '$(aksClusterName)'
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
+        # This deploys: user-deployment.yaml, api-gateway.yaml, order-deployment.yaml, hpa-user-deployment.yaml, api-gateway-service.yaml
               
-    # 4. Verification Step (Optional but recommended)
+    # 4. Verification Step
     - task: AzureCLI@2
       displayName: 'Verify Deployment (Get Gateway IP)'
       inputs:
