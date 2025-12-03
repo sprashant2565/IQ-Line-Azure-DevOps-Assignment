@@ -1,46 +1,35 @@
 # -------------------------------------------------------------------------
 # FULL CI/CD PIPELINE: Build, Test, Push to ACR, and Deploy to AKS
+# This pipeline is fixed to use a SELF-HOSTED AGENT POOL.
 # -------------------------------------------------------------------------
 
 trigger:
   branches:
     include:
-      - iq-line # Trigger on code commits to the main branch
+      - iq-line
 
 resources:
   repositories:
   - repository: self
 
-# Use the Variable Group created in the Azure DevOps Library
 variables:
-  - group: Azure-Variables  # Must exist in Azure DevOps Pipelines > Library > Variable Groups
+  - group: Azure-Variables  # Must exist and be linked
   - name: projectRoot
     value: '$(System.DefaultWorkingDirectory)'
   - name: buildId
     value: '$(Build.BuildId)'
-  # Fallback defaults if Variable Group is missing (REMOVE after Variable Group is created)
-  - name: acrName
-    value: 'devopsassignacr.azurecr.io'
-  - name: resourceGroupName
-    value: 'devopsassign-rg'
-  - name: aksClusterName
-    value: 'devopsassign-aks'
-  - name: app_insights_ikey
-    value: ''  # Must be set in Variable Group (mark as secret)
 
+# FIX: Change to use the self-hosted agent pool name
 pool:
-  vmImage: 'ubuntu-latest' # Microsoft-hosted agent
+  name: MySelfHostedPool 
 
 stages: 
 # =========================================================================
 # STAGE 1: CI (Build, Test, Containerize, Push)
-# CONSOLIDATED to a single job to avoid parallelism error.
 # =========================================================================
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
   jobs:
-  
-  # CONSOLIDATED JOB: Runs all microservice builds sequentially using a single unit of parallelism
   - job: BuildAllServices
     displayName: 'Build, Test, & Push All Microservices'
     
@@ -52,13 +41,9 @@ stages:
       inputs:
         versionSpec: '3.11'
 
-    # ---------------------------------------------
-    # 1. API GATEWAY BUILD
-    # ---------------------------------------------
+    # --- API GATEWAY BUILD ---
     - script: |
-        echo "##[group]Processing API Gateway"
         pip install -r api-gateway/requirements.txt
-        echo "##[endgroup]"
       displayName: 'Install Deps: api-gateway'
 
     - task: Docker@2
@@ -73,19 +58,12 @@ stages:
           $(buildId)
           latest
 
-    # ---------------------------------------------
-    # 2. USER SERVICE BUILD
-    # ---------------------------------------------
+    # --- USER SERVICE BUILD ---
     - script: |
-        echo "##[group]Processing User Service"
         pip install -r user-service/requirements.txt
         echo "Running unit tests for User Service..."
         python -m unittest user-service/test_app.py
-        echo "##[endgroup]"
       displayName: 'Install Deps & Run Tests: user-service'
-
-    # Note: Publish Test Results task must be used if unit tests create a JUnit file.
-    # The existing script command assumes the user service test creates test_app.py
 
     - task: Docker@2
       displayName: 'Build & Push: user-service'
@@ -99,13 +77,9 @@ stages:
           $(buildId)
           latest
 
-    # ---------------------------------------------
-    # 3. ORDER SERVICE BUILD
-    # ---------------------------------------------
+    # --- ORDER SERVICE BUILD ---
     - script: |
-        echo "##[group]Processing Order Service"
         pip install -r order-service/requirements.txt
-        echo "##[endgroup]"
       displayName: 'Install Deps: order-service'
 
     - task: Docker@2
@@ -120,9 +94,7 @@ stages:
           $(buildId)
           latest
           
-    # ---------------------------------------------
-    # 4. PUBLISH K8S MANIFESTS (Artifact for CD)
-    # ---------------------------------------------
+    # --- PUBLISH K8S MANIFESTS ---
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Artifact: Deployment Manifests'
       inputs:
@@ -135,24 +107,22 @@ stages:
 # =========================================================================
 - stage: DeployToAKS
   displayName: 'CD: Deploy Microservices to AKS'
-  dependsOn: BuildTestAndPush # Only run if CI succeeds
+  dependsOn: BuildTestAndPush
   condition: succeeded()
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
+    # FIX: Change to use the self-hosted agent pool name
     pool:
-      vmImage: 'ubuntu-latest'
+      name: MySelfHostedPool 
     steps:
     
-    # Download the K8s manifests published by the CI stage
     - task: DownloadPipelineArtifact@2
       displayName: 'Download K8s Manifests'
       inputs:
         artifact: 'k8s-deployment-manifests'
         path: '$(Pipeline.Workspace)/k8s-manifests'
               
-    # 1. Kubernetes Manifest Replacement (ACR name, App Insights Key)
-    # This Bash script uses envsubst to replace tokens $(VAR) in your YAML files.
     - task: Bash@3
       displayName: 'Replace Tokens in K8s Manifests (envsubst)'
       inputs:
@@ -164,7 +134,7 @@ stages:
             sudo apt-get install -y gettext-base
           fi
 
-          # Export pipeline variables into shell variables (Azure Pipelines will substitute $(var) before running)
+          # Export pipeline variables into shell variables
           export acrName="$(acrName)"
           export resourceGroupName="$(resourceGroupName)"
           export aksClusterName="$(aksClusterName)"
@@ -178,13 +148,8 @@ stages:
             envsubst < "$tmp" > "$file"
             rm "$tmp"
           done
-
           echo "Token replacement complete."
-        # This replaces:
-        # - "$(acrName)" in api-gateway.yaml and user-deployment.yaml
-        # - "$(app_insights_ikey)" in api-gateway.yaml
 
-    # 2. Deploy Key Vault SecretProviderClass (First)
     - task: Kubernetes@1
       displayName: 'Deploy Key Vault SecretProviderClass'
       inputs:
@@ -195,7 +160,6 @@ stages:
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
 
-    # 3. Deploy all services (Deployments, HPA, and LoadBalancer)
     - task: Kubernetes@1
       displayName: 'Deploy Microservices & HPA to AKS'
       inputs:
@@ -205,9 +169,7 @@ stages:
         kubernetesCluster: '$(aksClusterName)'
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
-        # This deploys: user-deployment.yaml, api-gateway.yaml, order-deployment.yaml, hpa-user-deployment.yaml, api-gateway-service.yaml
               
-    # 4. Verification Step
     - task: AzureCLI@2
       displayName: 'Verify Deployment (Get Gateway IP)'
       inputs:
@@ -215,13 +177,11 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          # Get Kube config
           az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
           
           echo "Waiting for API Gateway External IP..."
           kubectl get svc api-gateway-external --watch &
           
-          # Wait for 60 seconds (or appropriate time) for the IP to provision
           sleep 60 
           
           GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
