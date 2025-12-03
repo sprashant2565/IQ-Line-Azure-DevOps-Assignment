@@ -129,15 +129,34 @@ stages:
               
           # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
           # NOTE: This task requires the 'Replace Tokens' Marketplace extension to be installed!
-          - task: replacetokens@5
-            displayName: 'Replace Tokens in K8s Manifests'
+          - task: Bash@3
+            displayName: 'Replace Tokens in K8s Manifests (envsubst)'
             inputs:
-              rootDirectory: '$(Pipeline.Workspace)/k8s-manifests'
-              targetFiles: '**/*.yaml'
-              tokenPrefix: '$('
-              tokenSuffix: ')'
-              actionOnMissing: 'warn'
-              
+              targetType: 'inline'
+              script: |
+                # Install envsubst (gettext-base) on Linux agents
+                if ! command -v envsubst >/dev/null 2>&1; then
+                  sudo apt-get update
+                  sudo apt-get install -y gettext-base
+                fi
+
+                # Export pipeline variables into shell variables (Azure Pipelines will substitute $(var) before running)
+                export acrName="$(acrName)"
+                export resourceGroupName="$(resourceGroupName)"
+                export aksClusterName="$(aksClusterName)"
+                export app_insights_ikey="$(app_insights_ikey)"
+
+                WORKSPACE_DIR="$(Pipeline.Workspace)/k8s-manifests"
+                find "$WORKSPACE_DIR" -type f -name '*.yaml' -print0 | while IFS= read -r -d '' file; do
+                  tmp="${file}.tmp"
+                  # Convert $(VAR) -> ${VAR} so envsubst can use environment variables
+                  sed -E 's/\$\(([A-Za-z_][A-Za-z0-9_]*)\)/\${\1}/g' "$file" > "$tmp"
+                  envsubst < "$tmp" > "$file"
+                  rm "$tmp"
+                done
+
+                echo "Token replacement complete."
+
           # 2. Deploy Key Vault SecretProviderClass (First)
           - task: Kubernetes@1
             displayName: 'Deploy Key Vault SecretProviderClass'
