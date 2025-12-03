@@ -38,19 +38,12 @@ stages:
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
   jobs:
-  - job: BuildServices
-    displayName: 'Process Microservices'
-    
-    # Use a matrix strategy to run steps concurrently for each service
-    strategy:
-      matrix:
-        Gateway:
-          serviceName: api-gateway
-        User:
-          serviceName: user-service
-        Order:
-          serviceName: order-service
-
+  
+  # Job 1: Build and push API Gateway
+  - job: BuildGateway
+    displayName: 'Build & Push: api-gateway'
+    variables:
+      serviceName: 'api-gateway'
     steps:
     - checkout: self
       
@@ -59,59 +52,132 @@ stages:
       inputs:
         versionSpec: '3.11'
 
-    # 1. Install Dependencies & Run Tests (Only for user-service)
     - script: |
         echo "Installing dependencies for $(serviceName)..."
         pip install -r $(serviceName)/requirements.txt
-        
-        if [ "$(serviceName)" = "user-service" ]; then
-          echo "Running unit tests for User Service..."
-          # Note: Adjust test command if your test file location is different
-          python -m unittest $(serviceName)/test_app.py
-        fi
-      displayName: 'Install Deps & Run Tests'
+      displayName: 'Install Dependencies'
 
-    # 2. Publish Test Results (Required CI Artifact)
-    - task: PublishTestResults@2
-      condition: and(succeeded(), eq(variables['serviceName'], 'user-service'))
-      inputs:
-        testResultsFormat: 'JUnit'
-        testResultsFiles: '**/test-results-*.xml' # Assume test results are outputted somewhere
-        failTaskOnFailedTests: true
-        displayName: 'Publish Test Results'
-        
-    # 3. Containerization Stage: Build and Tag Image
     - task: Docker@2
       displayName: 'Build Docker Image: $(serviceName)'
       inputs:
         command: build
-        # FIX 1: Use Azure Subscription for ACR access
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)' # Image name only
+        repository: '$(serviceName)'
         Dockerfile: '$(serviceName)/Dockerfile'
         tags: |
           $(buildId)
           latest
 
-    # 4. Push Stage: Push to Azure Container Registry (ACR)
     - task: Docker@2
       displayName: 'Push Image to ACR: $(serviceName)'
       inputs:
         command: push
-        # FIX 1: Use Azure Subscription for ACR access
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: '$(serviceName)' # Image name only
+        repository: '$(serviceName)'
         tags: |
           $(buildId)
           latest
-          
-    # 5. Publish Artifacts: Pass K8s manifests to CD
+
+  # Job 2: Build and push User Service
+  - job: BuildUser
+    displayName: 'Build & Push: user-service'
+    dependsOn: []  # Run in parallel if possible, or after Gateway
+    variables:
+      serviceName: 'user-service'
+    steps:
+    - checkout: self
+      
+    - task: UsePythonVersion@0
+      displayName: 'Set up Python 3.11'
+      inputs:
+        versionSpec: '3.11'
+
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
+        echo "Running unit tests for User Service..."
+        python -m unittest $(serviceName)/test_app.py
+      displayName: 'Install Dependencies & Run Tests'
+
+    - task: Docker@2
+      displayName: 'Build Docker Image: $(serviceName)'
+      inputs:
+        command: build
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
+        tags: |
+          $(buildId)
+          latest
+
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+
+  # Job 3: Build and push Order Service
+  - job: BuildOrder
+    displayName: 'Build & Push: order-service'
+    dependsOn: []  # Run in parallel if possible, or after Gateway
+    variables:
+      serviceName: 'order-service'
+    steps:
+    - checkout: self
+      
+    - task: UsePythonVersion@0
+      displayName: 'Set up Python 3.11'
+      inputs:
+        versionSpec: '3.11'
+
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
+      displayName: 'Install Dependencies'
+
+    - task: Docker@2
+      displayName: 'Build Docker Image: $(serviceName)'
+      inputs:
+        command: build
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
+        tags: |
+          $(buildId)
+          latest
+
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+
+  # Publish K8s manifests after all services are built
+  - job: PublishManifests
+    displayName: 'Publish K8s Manifests'
+    dependsOn:
+      - BuildGateway
+      - BuildUser
+      - BuildOrder
+    steps:
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Artifact: Deployment Manifests'
       inputs:
-        targetPath: '$(projectRoot)/k8s-manifests'
+        targetPath: '$(System.DefaultWorkingDirectory)/k8s-manifests'
         artifact: 'k8s-deployment-manifests'
         publishLocation: 'pipeline'
 
