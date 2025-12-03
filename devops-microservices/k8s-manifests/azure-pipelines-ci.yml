@@ -30,7 +30,8 @@ variables:
 
 # FIX: Set pool to use your self-hosted agent
 pool:
-  name: MySelfHostedPool
+  # name: MySelfHostedPool
+  vmImage: 'ubuntu-latest'  # Temporary: Use Microsoft-hosted agent while debugging
 
 stages: 
 # =========================================================================
