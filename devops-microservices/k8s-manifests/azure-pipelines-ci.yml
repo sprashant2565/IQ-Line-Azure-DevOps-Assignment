@@ -48,20 +48,20 @@ stages:
     steps:
     - checkout: self
       
-    # NEW STEP: Helps diagnose the missing directory issue
+    # NEW DEBUG STEP: Show the entire directory structure checked out by the agent
     - script: |
-        echo "--- Debug: Listing contents of the repository root ---"
-        ls -l $(System.DefaultWorkingDirectory)
-        echo "-----------------------------------------------------"
-      displayName: 'Debug: List Repo Root Contents'
+        echo "--- Debug: Listing Recursive Contents of Repository Root ---"
+        ls -R $(System.DefaultWorkingDirectory)
+        echo "------------------------------------------------------------"
+      displayName: 'Debug: List Full Repo Contents'
 
     # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
-        # Explicitly use python3.11 for pip installation
-        python3.11 -m pip install -r $(serviceName)/requirements.txt
+        # Using full path to ensure success
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
       displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
@@ -96,15 +96,15 @@ stages:
     steps:
     - checkout: self
       
-    # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
+    # Python Setup & Install Dependencies 
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
-        # Explicitly use python3.11 for pip installation and testing
-        python3.11 -m pip install -r $(serviceName)/requirements.txt
+        # Using full path for robust installation
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
         echo "Running unit tests for User Service..."
-        python3.11 -m unittest $(serviceName)/test_app.py
+        python3.11 -m unittest $(System.DefaultWorkingDirectory)/$(serviceName)/test_app.py
       displayName: 'Verify Python, Install Deps & Run Tests: $(serviceName)'
 
     - task: Docker@2
@@ -139,13 +139,13 @@ stages:
     steps:
     - checkout: self
       
-    # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
+    # Python Setup & Install Dependencies
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
-        # Explicitly use python3.11 for pip installation
-        python3.11 -m pip install -r $(serviceName)/requirements.txt
+        # Using full path for robust installation
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
       displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
@@ -196,7 +196,7 @@ stages:
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
-    # FIX: Set pool to use your self-hosted agent
+    # Using the self-hosted agent pool name
     pool:
       name: MySelfHostedPool
     steps:
