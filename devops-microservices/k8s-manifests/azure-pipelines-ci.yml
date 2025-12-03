@@ -83,7 +83,7 @@ stages:
   # Job 2: Build and push User Service
   - job: BuildUser
     displayName: 'Build & Push: user-service'
-    dependsOn: []  # Run in parallel if possible, or after Gateway
+    dependsOn: BuildGateway
     variables:
       serviceName: 'user-service'
     steps:
@@ -127,7 +127,7 @@ stages:
   # Job 3: Build and push Order Service
   - job: BuildOrder
     displayName: 'Build & Push: order-service'
-    dependsOn: []  # Run in parallel if possible, or after Gateway
+    dependsOn: BuildUser
     variables:
       serviceName: 'order-service'
     steps:
