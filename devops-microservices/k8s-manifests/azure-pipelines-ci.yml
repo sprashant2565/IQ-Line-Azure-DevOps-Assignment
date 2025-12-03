@@ -9,11 +9,20 @@ trigger:
 
 # Use the Variable Group created in the Azure DevOps Library
 variables:
-  - group: Azure-Variables
+  - group: Azure-Variables  # Must exist in Azure DevOps Pipelines > Library > Variable Groups
   - name: projectRoot
     value: '$(System.DefaultWorkingDirectory)'
   - name: buildId
     value: '$(Build.BuildId)'
+  # Fallback defaults if Variable Group is missing (REMOVE after Variable Group is created)
+  - name: acrName
+    value: 'devopsassignacr.azurecr.io'
+  - name: resourceGroupName
+    value: 'devopsassign-rg'
+  - name: aksClusterName
+    value: 'devopsassign-aks'
+  - name: app_insights_ikey
+    value: ''  # Must be set in Variable Group (mark as secret)
 
 pool:
   vmImage: 'ubuntu-latest' # Microsoft-hosted agent
