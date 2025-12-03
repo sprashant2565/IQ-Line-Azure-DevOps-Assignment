@@ -5,7 +5,7 @@
 trigger:
   branches:
     include:
-      - iq-line # Trigger on code commits to the main branch
+      - iq-line # Trigger on code commits to the iq-line branch
 
 # Use the Variable Group created in the Azure DevOps Library
 variables:
@@ -18,6 +18,10 @@ variables:
 pool:
   vmImage: 'ubuntu-latest' # Microsoft-hosted agent
 
+# =========================================================================
+# YAML FIX: Added the mandatory 'stages:' key here (Line 24 in the original error context)
+# =========================================================================
+stages: 
 # =========================================================================
 # STAGE 1: CI (Build, Test, Containerize, Push)
 # =========================================================================
