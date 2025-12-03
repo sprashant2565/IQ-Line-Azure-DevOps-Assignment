@@ -320,15 +320,23 @@ stages:
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
 
     # 3. Deploy all services, HPA, and LoadBalancer
-    - task: Kubernetes@1
-      displayName: 'Deploy Microservices & HPA to AKS'
+    - task: Bash@3
+      displayName: 'Deploy Microservices & HPA to AKS (apply manifest files only)'
       inputs:
-        connectionType: 'Azure Resource Manager'
-        azureSubscriptionEndpoint: 'azure-service-connection'
-        azureResourceGroup: '$(resourceGroupName)'
-        kubernetesCluster: '$(aksClusterName)'
-        command: 'apply'
-        arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
+        targetType: 'inline'
+        script: |
+          set -euo pipefail
+          WORKSPACE_DIR="$(Pipeline.Workspace)/k8s-manifests"
+          echo "Applying Kubernetes manifests from $WORKSPACE_DIR"
+
+          # Find all .yml/.yaml files, exclude pipeline YAML file, sort for deterministic order
+          find "$WORKSPACE_DIR" -type f \( -iname '*.yml' -o -iname '*.yaml' \) ! -iname 'azure-pipelines-ci.yml' -print0 |
+            sort -z | while IFS= read -r -d '' file; do
+              echo "--- Applying: $file ---"
+              kubectl apply -f "$file"
+            done
+
+          echo "All manifest files applied."
               
     # 4. Verification Step (Optional but recommended)
     - task: AzureCLI@2
