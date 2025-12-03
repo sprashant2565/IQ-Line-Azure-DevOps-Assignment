@@ -121,7 +121,6 @@ stages:
   jobs:
   - deployment: DeployMicroservices
     displayName: 'Deployment Job'
-    environment: 'aks-prod-env' # Use an environment for better visibility and approval gates
     pool:
       vmImage: 'ubuntu-latest'
     strategy:
