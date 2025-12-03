@@ -216,7 +216,7 @@ stages:
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Artifact: Deployment Manifests'
       inputs:
-        targetPath: '$(System.DefaultWorkingDirectory)/k8s-manifests'
+        targetPath: '$(System.DefaultWorkingDirectory)/devops-microservices/k8s-manifests'
         artifact: 'k8s-deployment-manifests'
         publishLocation: 'pipeline'
 
