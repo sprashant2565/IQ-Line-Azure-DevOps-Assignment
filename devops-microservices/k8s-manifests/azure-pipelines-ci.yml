@@ -18,9 +18,6 @@ variables:
 pool:
   vmImage: 'ubuntu-latest' # Microsoft-hosted agent
 
-# =========================================================================
-# YAML FIX: Added the mandatory 'stages:' key here (Line 24 in the original error context)
-# =========================================================================
 stages: 
 # =========================================================================
 # STAGE 1: CI (Build, Test, Containerize, Push)
@@ -75,8 +72,10 @@ stages:
       displayName: 'Build Docker Image: $(serviceName)'
       inputs:
         command: build
-        containerRegistry: 'azure-service-connection' # Use the Service Connection name
-        repository: '$(acrName)/$(serviceName)'
+        # FIX 1: Use Azure Subscription for ACR access
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)' # Image name only
         Dockerfile: '$(serviceName)/Dockerfile'
         tags: |
           $(buildId)
@@ -87,8 +86,10 @@ stages:
       displayName: 'Push Image to ACR: $(serviceName)'
       inputs:
         command: push
-        containerRegistry: 'azure-service-connection'
-        repository: '$(acrName)/$(serviceName)'
+        # FIX 1: Use Azure Subscription for ACR access
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)' # Image name only
         tags: |
           $(buildId)
           latest
@@ -127,8 +128,7 @@ stages:
               path: '$(Pipeline.Workspace)/k8s-manifests'
               
           # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
-          # This step replaces the placeholder variables in your K8s YAML files 
-          # with actual values from the Azure-Variables group.
+          # NOTE: This task requires the 'Replace Tokens' Marketplace extension to be installed!
           - task: replacetokens@5
             displayName: 'Replace Tokens in K8s Manifests'
             inputs:
@@ -136,7 +136,7 @@ stages:
               targetFiles: '**/*.yaml'
               tokenPrefix: '$('
               tokenSuffix: ')'
-              actionOnMissing: 'warn' # Warn if a token in the manifest is missing a variable value
+              actionOnMissing: 'warn'
               
           # 2. Deploy Key Vault SecretProviderClass (First)
           - task: Kubernetes@1

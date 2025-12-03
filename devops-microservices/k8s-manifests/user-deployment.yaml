@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: user-service
-        image: devopsassignacr.azurecr.io/user-service:latest # REPLACE with your ACR login server
+        image: "$(acrName)/user-service:latest" # replaced with token for pipeline replacement
         ports:
         - containerPort: 5001
         resources:

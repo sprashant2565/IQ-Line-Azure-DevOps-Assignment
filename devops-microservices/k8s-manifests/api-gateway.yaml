@@ -18,7 +18,7 @@ spec:
  # Inside the container spec for api-gateway
       containers:
       - name: api-gateway
-        image: devopsassignacr.azurecr.io/api-gateway:latest
+        image: "$(acrName)/api-gateway:latest"
         ports:
         - containerPort: 5000
         env:
