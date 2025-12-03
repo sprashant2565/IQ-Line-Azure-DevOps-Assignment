@@ -48,22 +48,14 @@ stages:
     steps:
     - checkout: self
       
-    # START PYTHON FIX
-    - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11 (Self-Hosted)'
-      inputs:
-        versionSpec: '3.11'
-        addToPath: true # CRUCIAL FIX: Uses system-installed Python
-        
+    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
     - script: |
+        echo "Verifying Python 3.11 installation..."
         python3.11 --version
-      displayName: 'Verify Python 3.11 is on PATH'
-    # END PYTHON FIX
-
-    - script: |
         echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
-      displayName: 'Install Dependencies'
+        # Explicitly use python3.11 for pip installation to guarantee version
+        python3.11 -m pip install -r $(serviceName)/requirements.txt
+      displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
       displayName: 'Build Docker Image: $(serviceName)'
@@ -97,24 +89,16 @@ stages:
     steps:
     - checkout: self
       
-    # START PYTHON FIX
-    - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11 (Self-Hosted)'
-      inputs:
-        versionSpec: '3.11'
-        addToPath: true # CRUCIAL FIX: Uses system-installed Python
-        
+    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
     - script: |
+        echo "Verifying Python 3.11 installation..."
         python3.11 --version
-      displayName: 'Verify Python 3.11 is on PATH'
-    # END PYTHON FIX
-
-    - script: |
         echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
+        # Explicitly use python3.11 for pip installation and testing
+        python3.11 -m pip install -r $(serviceName)/requirements.txt
         echo "Running unit tests for User Service..."
-        python -m unittest $(serviceName)/test_app.py
-      displayName: 'Install Dependencies & Run Tests'
+        python3.11 -m unittest $(serviceName)/test_app.py
+      displayName: 'Verify Python, Install Deps & Run Tests: $(serviceName)'
 
     - task: Docker@2
       displayName: 'Build Docker Image: $(serviceName)'
@@ -148,22 +132,14 @@ stages:
     steps:
     - checkout: self
       
-    # START PYTHON FIX
-    - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11 (Self-Hosted)'
-      inputs:
-        versionSpec: '3.11'
-        addToPath: true # CRUCIAL FIX: Uses system-installed Python
-        
+    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
     - script: |
+        echo "Verifying Python 3.11 installation..."
         python3.11 --version
-      displayName: 'Verify Python 3.11 is on PATH'
-    # END PYTHON FIX
-
-    - script: |
         echo "Installing dependencies for $(serviceName)..."
-        pip install -r $(serviceName)/requirements.txt
-      displayName: 'Install Dependencies'
+        # Explicitly use python3.11 for pip installation
+        python3.11 -m pip install -r $(serviceName)/requirements.txt
+      displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
       displayName: 'Build Docker Image: $(serviceName)'
@@ -213,7 +189,7 @@ stages:
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
-    # FIX: Change to use the self-hosted agent pool name
+    # Using the self-hosted agent pool name
     pool:
       name: MySelfHostedPool
     steps:
