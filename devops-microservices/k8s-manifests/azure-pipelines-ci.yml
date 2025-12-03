@@ -272,28 +272,40 @@ stages:
           echo "Token replacement complete."
 
     # 1.5 Install Secrets Store CSI Driver (required for SecretProviderClass)
-    - task: Bash@3
-      displayName: 'Install Secrets Store CSI Driver & Azure Plugin'
+    - task: AzureCLI@2
+      displayName: 'Ensure AKS credentials and install Secrets Store CSI Driver'
       inputs:
-        targetType: 'inline'
-        script: |
-          echo "Checking if Secrets Store CSI Driver is installed..."
-          if ! kubectl get crd secretproviderclasses.secrets-store.csi.x-k8s.io &> /dev/null; then
-            echo "Installing Secrets Store CSI Driver..."
+        azureSubscription: 'azure-service-connection'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          set -euo pipefail
+          echo "Fetching AKS credentials..."
+          az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
+
+          # Ensure helm is installed on the agent
+          if ! command -v helm >/dev/null 2>&1; then
+            echo "Helm not found. Installing Helm..."
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+
+          echo "Checking if Secrets Store CSI Driver CRD exists..."
+          if ! kubectl get crd secretproviderclasses.secrets-store.csi.x-k8s.io >/dev/null 2>&1; then
+            echo "Installing Secrets Store CSI Driver via Helm..."
             helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
             helm repo update
-            helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver --namespace kube-system --set syncSecret.enabled=true
-            
+            helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver --namespace kube-system --create-namespace --set syncSecret.enabled=true
+
             echo "Installing Azure Key Vault Provider for Secrets Store CSI Driver..."
             helm repo add azure https://raw.githubusercontent.com/Azure/secrets-store-csi-driver-provider-azure/master/charts
             helm repo update
-            helm install azure-provider azure/azure-keyvault-secrets-provider --namespace kube-system
-            
-            echo "Waiting for CSI driver to be ready..."
+            helm install azure-provider azure/azure-keyvault-secrets-provider --namespace kube-system --create-namespace
+
+            echo "Waiting for CSI driver daemonset to be ready..."
             kubectl rollout status daemonset/secrets-store-csi-driver -n kube-system --timeout=5m
             echo "Secrets Store CSI Driver installed successfully."
           else
-            echo "Secrets Store CSI Driver already installed."
+            echo "Secrets Store CSI Driver CRD already present."
           fi
 
     # 2. Deploy Key Vault SecretProviderClass (First)
