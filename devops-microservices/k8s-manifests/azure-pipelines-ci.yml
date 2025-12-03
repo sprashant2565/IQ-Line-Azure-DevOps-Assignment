@@ -1,27 +1,36 @@
 # -------------------------------------------------------------------------
 # FULL CI/CD PIPELINE: Build, Test, Push to ACR, and Deploy to AKS
-# This pipeline is fixed to use a SELF-HOSTED AGENT POOL.
 # -------------------------------------------------------------------------
 
 trigger:
   branches:
     include:
-      - iq-line
+      - iq-line # Trigger on code commits to the main branch
 
 resources:
   repositories:
   - repository: self
 
+# Use the Variable Group created in the Azure DevOps Library
 variables:
-  - group: Azure-Variables  # Must exist and be linked
+  - group: Azure-Variables  # Must exist in Azure DevOps Pipelines > Library > Variable Groups
   - name: projectRoot
     value: '$(System.DefaultWorkingDirectory)'
   - name: buildId
     value: '$(Build.BuildId)'
+  # Fallback defaults if Variable Group is missing (REMOVE after Variable Group is created)
+  - name: acrName
+    value: 'devopsassignacr.azurecr.io'
+  - name: resourceGroupName
+    value: 'devopsassign-rg'
+  - name: aksClusterName
+    value: 'devopsassign-aks'
+  - name: app_insights_ikey
+    value: ''  # Must be set in Variable Group (mark as secret)
 
 # FIX: Change to use the self-hosted agent pool name
 pool:
-  name: MySelfHostedPool 
+  name: MySelfHostedPool
 
 stages: 
 # =========================================================================
@@ -30,71 +39,163 @@ stages:
 - stage: BuildTestAndPush
   displayName: 'CI: Build, Test, & Push Containers'
   jobs:
-  - job: BuildAllServices
-    displayName: 'Build, Test, & Push All Microservices'
-    
+  
+  # Job 1: Build and push API Gateway
+  - job: BuildGateway
+    displayName: 'Build & Push: api-gateway'
+    variables:
+      serviceName: 'api-gateway'
     steps:
     - checkout: self
       
+    # START PYTHON FIX
     - task: UsePythonVersion@0
-      displayName: 'Set up Python 3.11'
+      displayName: 'Set up Python 3.11 (Self-Hosted)'
       inputs:
         versionSpec: '3.11'
-
-    # --- API GATEWAY BUILD ---
+        addToPath: true # CRUCIAL FIX: Uses system-installed Python
+        
     - script: |
-        pip install -r api-gateway/requirements.txt
-      displayName: 'Install Deps: api-gateway'
+        python3.11 --version
+      displayName: 'Verify Python 3.11 is on PATH'
+    # END PYTHON FIX
+
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
+      displayName: 'Install Dependencies'
 
     - task: Docker@2
-      displayName: 'Build & Push: api-gateway'
+      displayName: 'Build Docker Image: $(serviceName)'
       inputs:
-        command: buildAndPush
+        command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: 'api-gateway'
-        Dockerfile: 'api-gateway/Dockerfile'
+        repository: '$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
         tags: |
           $(buildId)
           latest
 
-    # --- USER SERVICE BUILD ---
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+
+  # Job 2: Build and push User Service
+  - job: BuildUser
+    displayName: 'Build & Push: user-service'
+    dependsOn: BuildGateway
+    variables:
+      serviceName: 'user-service'
+    steps:
+    - checkout: self
+      
+    # START PYTHON FIX
+    - task: UsePythonVersion@0
+      displayName: 'Set up Python 3.11 (Self-Hosted)'
+      inputs:
+        versionSpec: '3.11'
+        addToPath: true # CRUCIAL FIX: Uses system-installed Python
+        
     - script: |
-        pip install -r user-service/requirements.txt
+        python3.11 --version
+      displayName: 'Verify Python 3.11 is on PATH'
+    # END PYTHON FIX
+
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
         echo "Running unit tests for User Service..."
-        python -m unittest user-service/test_app.py
-      displayName: 'Install Deps & Run Tests: user-service'
+        python -m unittest $(serviceName)/test_app.py
+      displayName: 'Install Dependencies & Run Tests'
 
     - task: Docker@2
-      displayName: 'Build & Push: user-service'
+      displayName: 'Build Docker Image: $(serviceName)'
       inputs:
-        command: buildAndPush
+        command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: 'user-service'
-        Dockerfile: 'user-service/Dockerfile'
+        repository: '$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
         tags: |
           $(buildId)
           latest
 
-    # --- ORDER SERVICE BUILD ---
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+
+  # Job 3: Build and push Order Service
+  - job: BuildOrder
+    displayName: 'Build & Push: order-service'
+    dependsOn: BuildUser
+    variables:
+      serviceName: 'order-service'
+    steps:
+    - checkout: self
+      
+    # START PYTHON FIX
+    - task: UsePythonVersion@0
+      displayName: 'Set up Python 3.11 (Self-Hosted)'
+      inputs:
+        versionSpec: '3.11'
+        addToPath: true # CRUCIAL FIX: Uses system-installed Python
+        
     - script: |
-        pip install -r order-service/requirements.txt
-      displayName: 'Install Deps: order-service'
+        python3.11 --version
+      displayName: 'Verify Python 3.11 is on PATH'
+    # END PYTHON FIX
+
+    - script: |
+        echo "Installing dependencies for $(serviceName)..."
+        pip install -r $(serviceName)/requirements.txt
+      displayName: 'Install Dependencies'
 
     - task: Docker@2
-      displayName: 'Build & Push: order-service'
+      displayName: 'Build Docker Image: $(serviceName)'
       inputs:
-        command: buildAndPush
+        command: build
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
-        repository: 'order-service'
-        Dockerfile: 'order-service/Dockerfile'
+        repository: '$(serviceName)'
+        Dockerfile: '$(serviceName)/Dockerfile'
         tags: |
           $(buildId)
           latest
-          
-    # --- PUBLISH K8S MANIFESTS ---
+
+    - task: Docker@2
+      displayName: 'Push Image to ACR: $(serviceName)'
+      inputs:
+        command: push
+        azureSubscription: 'azure-service-connection'
+        azureContainerRegistry: '$(acrName)'
+        repository: '$(serviceName)'
+        tags: |
+          $(buildId)
+          latest
+
+  # Publish K8s manifests after all services are built
+  - job: PublishManifests
+    displayName: 'Publish K8s Manifests'
+    dependsOn:
+      - BuildGateway
+      - BuildUser
+      - BuildOrder
+    steps:
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Artifact: Deployment Manifests'
       inputs:
@@ -102,27 +203,29 @@ stages:
         artifact: 'k8s-deployment-manifests'
         publishLocation: 'pipeline'
 
-# ========================================================================
+# =========================================================================
 # STAGE 2: CD (Deploy to AKS)
-# ========================================================================
+# =========================================================================
 - stage: DeployToAKS
   displayName: 'CD: Deploy Microservices to AKS'
-  dependsOn: BuildTestAndPush
+  dependsOn: BuildTestAndPush # Only run if CI succeeds
   condition: succeeded()
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
     # FIX: Change to use the self-hosted agent pool name
     pool:
-      name: MySelfHostedPool 
+      name: MySelfHostedPool
     steps:
     
+    # Download the K8s manifests published by the CI stage
     - task: DownloadPipelineArtifact@2
       displayName: 'Download K8s Manifests'
       inputs:
         artifact: 'k8s-deployment-manifests'
         path: '$(Pipeline.Workspace)/k8s-manifests'
               
+    # 1. Kubernetes Manifest Replacement (iKey, ACR name, etc.)
     - task: Bash@3
       displayName: 'Replace Tokens in K8s Manifests (envsubst)'
       inputs:
@@ -134,7 +237,7 @@ stages:
             sudo apt-get install -y gettext-base
           fi
 
-          # Export pipeline variables into shell variables
+          # Export pipeline variables into shell variables (Azure Pipelines will substitute $(var) before running)
           export acrName="$(acrName)"
           export resourceGroupName="$(resourceGroupName)"
           export aksClusterName="$(aksClusterName)"
@@ -148,8 +251,10 @@ stages:
             envsubst < "$tmp" > "$file"
             rm "$tmp"
           done
+
           echo "Token replacement complete."
 
+    # 2. Deploy Key Vault SecretProviderClass (First)
     - task: Kubernetes@1
       displayName: 'Deploy Key Vault SecretProviderClass'
       inputs:
@@ -160,6 +265,7 @@ stages:
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/keyvault-secretprovider.yaml'
 
+    # 3. Deploy all services, HPA, and LoadBalancer
     - task: Kubernetes@1
       displayName: 'Deploy Microservices & HPA to AKS'
       inputs:
@@ -170,6 +276,7 @@ stages:
         command: 'apply'
         arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
               
+    # 4. Verification Step (Optional but recommended)
     - task: AzureCLI@2
       displayName: 'Verify Deployment (Get Gateway IP)'
       inputs:
@@ -177,11 +284,13 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          # Get Kube config
           az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
           
           echo "Waiting for API Gateway External IP..."
           kubectl get svc api-gateway-external --watch &
           
+          # Wait for 60 seconds (or appropriate time) for the IP to provision
           sleep 60 
           
           GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
