@@ -5,7 +5,11 @@
 trigger:
   branches:
     include:
-      - iq-line # Trigger on code commits to the iq-line branch
+      - iq-line # Trigger on code commits to the main branch
+
+resources:
+  repositories:
+  - repository: self
 
 # Use the Variable Group created in the Azure DevOps Library
 variables:
@@ -121,6 +125,9 @@ stages:
   jobs:
   - deployment: DeployMicroservices
     displayName: 'Deployment Job'
+    environment:
+      name: 'aks-deployment'
+      resourceType: 'Kubernetes'
     pool:
       vmImage: 'ubuntu-latest'
     strategy:
