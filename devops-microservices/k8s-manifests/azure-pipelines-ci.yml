@@ -61,7 +61,7 @@ stages:
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
         # Using full path to ensure success
-        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/devops-microservices/$(serviceName)/requirements.txt
       displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
@@ -71,7 +71,8 @@ stages:
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
         repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        Dockerfile: 'devops-microservices/$(serviceName)/Dockerfile'
+        buildContext: 'devops-microservices/$(serviceName)'
         tags: |
           $(buildId)
           latest
@@ -102,9 +103,9 @@ stages:
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
         # Using full path for robust installation
-        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/devops-microservices/$(serviceName)/requirements.txt
         echo "Running unit tests for User Service..."
-        python3.11 -m unittest $(System.DefaultWorkingDirectory)/$(serviceName)/test_app.py
+        python3.11 -m unittest $(System.DefaultWorkingDirectory)/devops-microservices/$(serviceName)/test_app.py
       displayName: 'Verify Python, Install Deps & Run Tests: $(serviceName)'
 
     - task: Docker@2
@@ -114,7 +115,8 @@ stages:
         azureSubscription: 'azure-service-connection'
         azureContainerRegistry: '$(acrName)'
         repository: '$(serviceName)'
-        Dockerfile: '$(serviceName)/Dockerfile'
+        Dockerfile: 'devops-microservices/$(serviceName)/Dockerfile'
+        buildContext: 'devops-microservices/$(serviceName)'
         tags: |
           $(buildId)
           latest
@@ -145,7 +147,7 @@ stages:
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
         # Using full path for robust installation
-        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/$(serviceName)/requirements.txt
+        python3.11 -m pip install -r $(System.DefaultWorkingDirectory)/devops-microservices/$(serviceName)/requirements.txt
       displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
     - task: Docker@2
