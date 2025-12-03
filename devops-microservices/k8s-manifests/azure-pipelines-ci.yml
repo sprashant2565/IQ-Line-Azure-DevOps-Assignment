@@ -348,13 +348,29 @@ stages:
         inlineScript: |
           # Get Kube config
           az aks get-credentials -g $(resourceGroupName) -n $(aksClusterName) --overwrite-existing --admin
-          
+
           echo "Waiting for API Gateway External IP..."
-          kubectl get svc api-gateway-external --watch &
-          
-          # Wait for 60 seconds (or appropriate time) for the IP to provision
-          sleep 60 
-          
-          GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "##vso[task.setvariable name=GatewayExternalIP;isOutput=true]$GATEWAY_IP"
+
+          # Wait up to 5 minutes for the LoadBalancer IP to appear
+          TIMEOUT_SEC=300
+          INTERVAL=5
+          ELAPSED=0
+          GATEWAY_IP=""
+
+          while [ $ELAPSED -lt $TIMEOUT_SEC ]; do
+            GATEWAY_IP=$(kubectl get svc api-gateway-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            if [ -n "$GATEWAY_IP" ]; then
+              break
+            fi
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ -z "$GATEWAY_IP" ]; then
+            echo "API Gateway External IP did not appear after ${TIMEOUT_SEC}s"
+            exit 1
+          fi
+
+          # Use the correct Azure DevOps logging command parameter 'variable' (not 'name')
+          echo "##vso[task.setvariable variable=GatewayExternalIP;isOutput=true]$GATEWAY_IP"
           echo "API Gateway External IP: $GATEWAY_IP"
