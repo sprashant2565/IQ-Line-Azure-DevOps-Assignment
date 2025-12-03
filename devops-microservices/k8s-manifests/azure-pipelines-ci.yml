@@ -28,7 +28,7 @@ variables:
   - name: app_insights_ikey
     value: ''  # Must be set in Variable Group (mark as secret)
 
-# FIX: Change to use the self-hosted agent pool name
+# FIX: Set pool to use your self-hosted agent
 pool:
   name: MySelfHostedPool
 
@@ -48,12 +48,19 @@ stages:
     steps:
     - checkout: self
       
-    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
+    # NEW STEP: Helps diagnose the missing directory issue
+    - script: |
+        echo "--- Debug: Listing contents of the repository root ---"
+        ls -l $(System.DefaultWorkingDirectory)
+        echo "-----------------------------------------------------"
+      displayName: 'Debug: List Repo Root Contents'
+
+    # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
         echo "Installing dependencies for $(serviceName)..."
-        # Explicitly use python3.11 for pip installation to guarantee version
+        # Explicitly use python3.11 for pip installation
         python3.11 -m pip install -r $(serviceName)/requirements.txt
       displayName: 'Verify Python & Install Dependencies: $(serviceName)'
 
@@ -89,7 +96,7 @@ stages:
     steps:
     - checkout: self
       
-    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
+    # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
@@ -132,7 +139,7 @@ stages:
     steps:
     - checkout: self
       
-    # FIX: Removed UsePythonVersion@0. Relying on system-installed python3.11.
+    # Python Setup & Install Dependencies (Fixed path to python3.11, removed UsePythonVersion@0)
     - script: |
         echo "Verifying Python 3.11 installation..."
         python3.11 --version
@@ -189,7 +196,7 @@ stages:
   jobs:
   - job: DeployMicroservices
     displayName: 'Deployment Job'
-    # Using the self-hosted agent pool name
+    # FIX: Set pool to use your self-hosted agent
     pool:
       name: MySelfHostedPool
     steps:
